@@ -1,0 +1,5 @@
+/target
+
+# Ignore all files in roms directory but keep subdirectories
+roms/*
+!roms/*/
