@@ -28,7 +28,7 @@ impl Gameboy {
     pub fn run(&mut self) {
         println!("Running Gameboy");
        
-        while true {
+        loop {
             self.cpu.fetch_decode_execute(&self.memory);
         }
     }
