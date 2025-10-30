@@ -29,7 +29,7 @@ impl Gameboy {
         println!("Running Gameboy");
        
         loop {
-            self.cpu.fetch_decode_execute(&self.memory);
+            self.cpu.fetch_decode_execute(&mut self.memory);
         }
     }
 }

@@ -12,7 +12,7 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn fetch_decode_execute(&mut self, memory: &crate::gameboy::memory::Memory) {
+    pub fn fetch_decode_execute(&mut self, memory: &mut crate::gameboy::memory::Memory) {
         // Fetch the next instruction
         println!("PC: 0x{:04X}", self.pc);
         let instruction = self.fetch_instruction(memory);
@@ -26,6 +26,12 @@ impl CPU {
             0x11 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
             0x21 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
             0x31 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
+
+            // 0x32 => self.ld_hl_indirect_dec(memory),
+            0x02 => self.ld_indirect(memory, RegisterPair::BC, 0),
+            0x12 => self.ld_indirect(memory, RegisterPair::DE, 0),
+            0x22 => self.ld_indirect(memory, RegisterPair::HL, 1),
+            0x32 => self.ld_indirect(memory, RegisterPair::HL, -1),
 
             // Single register ALU operations
             // 0x80..=0xBF => self.alu_r(opcode), // TODO: Decode the opcode to determine the operation and register
@@ -88,9 +94,6 @@ impl CPU {
     // -----------------------------------
 
     fn ld_nn(&mut self, memory: &crate::gameboy::memory::Memory, register_pair: RegisterPair) {
-        // LD rr, nn - Load 16-bit immediate value into register pair
-        // println!("Executing LD rr, nn");
-
         // Fetch the next two bytes for the immediate value
         let value = self.fetch_two_bytes(memory);
 
@@ -105,9 +108,6 @@ impl CPU {
     }
 
     fn xor(&mut self, value: u8) {
-        // XOR A - Logical XOR A with itself
-        // println!("Executing XOR A");
-
         // Perform XOR operation
         let result = self.registers.a ^ value;
         self.registers.a = result;
@@ -117,6 +117,30 @@ impl CPU {
         println!("Result of XOR A: 0x{:02X}", result);
     }
 
+    fn ld_indirect(&mut self, memory: &mut crate::gameboy::memory::Memory, register_pair: RegisterPair, delta: i8) {
+        // Get the base address from the specified register pair
+        let base_address = match register_pair {
+            RegisterPair::BC => self.registers.get_bc(),
+            RegisterPair::DE => self.registers.get_de(),
+            RegisterPair::HL => self.registers.get_hl(),
+            RegisterPair::SP => self.sp,
+        };
 
+        // Store the value of A into memory at the base address
+        memory.write_byte(base_address, self.registers.a);
+
+        // Adjust the base address by delta if needed
+        if delta != 0 {
+            let adjusted_address = base_address.wrapping_add(delta as u16);
+            match register_pair {
+                RegisterPair::BC => self.registers.set_bc(adjusted_address),
+                RegisterPair::DE => self.registers.set_de(adjusted_address),
+                RegisterPair::HL => self.registers.set_hl(adjusted_address),
+                RegisterPair::SP => self.sp = adjusted_address,
+            }
+        }
+
+        println!("Stored 0x{:02X} into memory at 0x{:04X}, adjusted by delta {}", self.registers.a, base_address, delta);
+    }
 }
 
