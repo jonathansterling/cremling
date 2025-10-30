@@ -34,18 +34,18 @@ impl Registers {
     }
 
     pub fn set_bc(&mut self, value: u16) {
-        self.b = ((value & LOW_BYTE_MASK) >> 8) as u8;
-        self.c = (value & HIGH_BYTE_MASK) as u8;
+        self.b = ((value & HIGH_BYTE_MASK) >> 8) as u8;
+        self.c = (value & LOW_BYTE_MASK) as u8;
     }
 
     pub fn set_de(&mut self, value: u16) {
-        self.d = ((value & LOW_BYTE_MASK) >> 8) as u8;
-        self.e = (value & HIGH_BYTE_MASK) as u8;
+        self.d = ((value & HIGH_BYTE_MASK) >> 8) as u8;
+        self.e = (value & LOW_BYTE_MASK) as u8;
     }
 
     pub fn set_hl(&mut self, value: u16) {
-        self.h = ((value & LOW_BYTE_MASK) >> 8) as u8;
-        self.l = (value & HIGH_BYTE_MASK) as u8;
+        self.h = ((value & HIGH_BYTE_MASK) >> 8) as u8;
+        self.l = (value & LOW_BYTE_MASK) as u8;
     }
 }
 

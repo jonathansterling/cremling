@@ -35,7 +35,9 @@ impl CPU {
 
             // Single register ALU operations
             // 0x80..=0xBF => self.alu_r(opcode), // TODO: Decode the opcode to determine the operation and register
-            0xA8..=0xAF => self.xor(self.get_register_from_opcode(instruction)),
+            0xA8..=0xAF => self.xor(self.get_alu_register(instruction, memory)),
+
+            0xCB => self.extended_instruction(memory),
 
             _ => panic!("Unknown opcode: 0x{:02X}", instruction),
         }
@@ -48,12 +50,20 @@ impl CPU {
         instruction
     }
 
+    fn extended_instruction(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        let extended_opcode = self.fetch_instruction(memory);
+        match extended_opcode {
+            0x40..=0x7F => self.bit(extended_opcode, memory),
+            _ => panic!("Unknown extended opcode: 0x{:02X}", extended_opcode),
+        }
+    }
+
     // -------------------------------
     // --- Opcode Decoding Helpers ---
     // -------------------------------
 
-    // Gets the register value
-    fn get_register_from_opcode(&self, opcode: u8) -> u8 {
+    // Gets the register value from bits 0-2 of opcode (for ALU and load instructions)
+    fn get_alu_register(&self, opcode: u8, memory: &crate::gameboy::memory::Memory) -> u8 {
         match opcode & 0x07 {
             0x00 => self.registers.b,
             0x01 => self.registers.c,
@@ -61,12 +71,13 @@ impl CPU {
             0x03 => self.registers.e,
             0x04 => self.registers.h,
             0x05 => self.registers.l,
+            0x06 => memory.read_byte(self.registers.get_hl()), // (HL) indirect
             0x07 => self.registers.a,
-            _ => panic!("Invalid register code in opcode: 0x{:02X}", opcode),
+            _ => unreachable!(),
         }
     }
 
-    // Gets the pair enum
+    // Gets the pair enum from bits 4-5 of opcode (for 16-bit operations)
     fn get_register_pair_from_opcode(&self, opcode: u8) -> RegisterPair {
         match (opcode >> 4) & 0x03 {
             0x00 => RegisterPair::BC,
@@ -75,6 +86,10 @@ impl CPU {
             0x03 => RegisterPair::SP,
             _ => panic!("Invalid register pair code in opcode: 0x{:02X}", opcode),
         }
+    }
+
+    fn get_bit_from_opcode(&self, opcode: u8) -> u8 {
+        (opcode >> 3) & 0x07
     }
 
     // ------------------------------------
@@ -141,6 +156,16 @@ impl CPU {
         }
 
         println!("Stored 0x{:02X} into memory at 0x{:04X}, adjusted by delta {}", self.registers.a, base_address, delta);
+    }
+
+    fn bit(&mut self, opcode: u8, memory: &crate::gameboy::memory::Memory) {
+        let bit_position = self.get_bit_from_opcode(opcode);
+        let value = self.get_alu_register(opcode, memory);
+        let bit_set = (value >> bit_position) & 0x01 != 0;
+
+        // Set flags: Z = !(bit set), N = 0, H = 1
+        self.flags.set(!bit_set, false, true, self.flags.carry);
+        println!("Tested bit {} of value 0x{:02X}, bit set: {}", bit_position, value, bit_set);
     }
 }
 
