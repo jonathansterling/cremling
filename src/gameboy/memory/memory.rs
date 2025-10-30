@@ -31,6 +31,12 @@ impl Memory {
         self.boot_rom[..BOOT_ROM_SIZE].copy_from_slice(boot_rom_data);
     }
 
+    pub fn load_rom(&mut self) {
+        let rom_data = include_bytes!("../../../roms/tetris.gb");
+        let length = rom_data.len().min(ADDR_SPACE_SIZE);
+        self.addr_space[..length].copy_from_slice(&rom_data[..length]);
+    }
+
     pub fn print_boot_rom(&self) {
         for (i, byte) in self.boot_rom.iter().enumerate() {
             println!("0x{:04X}: 0x{:02X}", i, byte);

@@ -23,6 +23,7 @@ impl Gameboy {
         println!("Configuring Gameboy");
         self.memory.load_boot_rom();
         self.memory.print_boot_rom();
+        self.memory.load_rom();
     }
 
     pub fn run(&mut self) {

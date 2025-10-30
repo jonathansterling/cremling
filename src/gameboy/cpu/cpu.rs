@@ -22,11 +22,11 @@ impl CPU {
         // dbg!(&self);
         match instruction {
 
-            0x18 => self.conditional_jump(memory, Conditions::NONE),
-            0x20 => self.conditional_jump(memory, Conditions::NZ),
-            0x28 => self.conditional_jump(memory, Conditions::Z),
-            0x30 => self.conditional_jump(memory, Conditions::NC),
-            0x38 => self.conditional_jump(memory, Conditions::C),
+            0x18 => self.conditional_jump_relative(memory, Conditions::NONE),
+            0x20 => self.conditional_jump_relative(memory, Conditions::NZ),
+            0x28 => self.conditional_jump_relative(memory, Conditions::Z),
+            0x30 => self.conditional_jump_relative(memory, Conditions::NC),
+            0x38 => self.conditional_jump_relative(memory, Conditions::C),
 
             0x01 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
             0x11 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
@@ -173,12 +173,14 @@ impl CPU {
         println!("Tested bit {} of value 0x{:02X}, bit set: {}", bit_position, value, bit_set);
     }
 
-    fn conditional_jump(&mut self, memory: &crate::gameboy::memory::Memory, condition: Conditions) {
-        let address = self.fetch_two_bytes(memory);
+    fn conditional_jump_relative(&mut self, memory: &crate::gameboy::memory::Memory, condition: Conditions) {
+        // Fetch the signed 8-bit offset
+        let offset = self.fetch_instruction(memory) as i8;
 
         if self.flags.condition(condition) {
-            self.pc = address;
-            println!("Jumped to address 0x{:04X} on condition {:?}", address, condition);
+            // Calculate the new PC by adding the signed offset
+            self.pc = self.pc.wrapping_add(offset as u16);
+            println!("Jumped to address 0x{:04X} on condition {:?} (offset: {})", self.pc, condition, offset);
         } else {
             println!("Did not jump on condition {:?}, PC remains at 0x{:04X}", condition, self.pc);
         }
