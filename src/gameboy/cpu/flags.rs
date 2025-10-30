@@ -3,6 +3,15 @@ const SUBTRACT_FLAG_BYTE_POSITION: u8 = 6;
 const HALF_CARRY_FLAG_BYTE_POSITION: u8 = 5;
 const CARRY_FLAG_BYTE_POSITION: u8 = 4;
 
+#[derive(Debug, Copy, Clone)]
+pub enum Conditions {
+    Z,  // Zero Flag set
+    NZ, // Zero Flag not set
+    C,  // Carry Flag set
+    NC, // Carry Flag not set
+    NONE,
+}
+
 #[derive(Debug)]
 #[derive(Default)]
 pub struct Flags {
@@ -18,6 +27,16 @@ impl Flags {
         self.subtract = subtract;
         self.half_carry = half_carry;
         self.carry = carry;
+    }
+
+    pub fn condition(&self, condition: Conditions) -> bool {
+        match condition {
+            Conditions::Z  => self.zero,
+            Conditions::NZ => !self.zero,
+            Conditions::C  => self.carry,
+            Conditions::NC => !self.carry,
+            Conditions::NONE => true,
+        }
     }
 }
 

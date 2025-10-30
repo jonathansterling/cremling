@@ -1,5 +1,5 @@
 use crate::gameboy::cpu::registers::{RegisterPair, Registers};
-use crate::gameboy::cpu::flags::Flags;
+use crate::gameboy::cpu::flags::{Flags, Conditions};
 
 #[derive(Debug)]
 #[derive(Default)]
@@ -22,12 +22,17 @@ impl CPU {
         // dbg!(&self);
         match instruction {
 
+            0x18 => self.conditional_jump(memory, Conditions::NONE),
+            0x20 => self.conditional_jump(memory, Conditions::NZ),
+            0x28 => self.conditional_jump(memory, Conditions::Z),
+            0x30 => self.conditional_jump(memory, Conditions::NC),
+            0x38 => self.conditional_jump(memory, Conditions::C),
+
             0x01 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
             0x11 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
             0x21 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
             0x31 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
 
-            // 0x32 => self.ld_hl_indirect_dec(memory),
             0x02 => self.ld_indirect(memory, RegisterPair::BC, 0),
             0x12 => self.ld_indirect(memory, RegisterPair::DE, 0),
             0x22 => self.ld_indirect(memory, RegisterPair::HL, 1),
@@ -166,6 +171,17 @@ impl CPU {
         // Set flags: Z = !(bit set), N = 0, H = 1
         self.flags.set(!bit_set, false, true, self.flags.carry);
         println!("Tested bit {} of value 0x{:02X}, bit set: {}", bit_position, value, bit_set);
+    }
+
+    fn conditional_jump(&mut self, memory: &crate::gameboy::memory::Memory, condition: Conditions) {
+        let address = self.fetch_two_bytes(memory);
+
+        if self.flags.condition(condition) {
+            self.pc = address;
+            println!("Jumped to address 0x{:04X} on condition {:?}", address, condition);
+        } else {
+            println!("Did not jump on condition {:?}, PC remains at 0x{:04X}", condition, self.pc);
+        }
     }
 }
 
