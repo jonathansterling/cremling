@@ -5,6 +5,9 @@ const HIGH_BYTE_MASK: u16 = 0xFF00;
 pub enum RegisterPair { BC, DE, HL, SP }
 
 #[derive(Debug)]
+pub enum SingleRegister { A, B, C, D, E, H, L, HL }
+
+#[derive(Debug)]
 #[derive(Default)]
 pub struct Registers {
     pub a: u8,

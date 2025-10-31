@@ -29,8 +29,11 @@ impl Gameboy {
     pub fn run(&mut self) {
         println!("Running Gameboy");
        
+        let mut instruction_count = 0;
         loop {
             self.cpu.fetch_decode_execute(&mut self.memory);
+            instruction_count += 1;
+            println!("Instruction Count: {}", instruction_count);
         }
     }
 }

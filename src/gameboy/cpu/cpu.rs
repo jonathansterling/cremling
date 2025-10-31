@@ -1,4 +1,4 @@
-use crate::gameboy::cpu::registers::{RegisterPair, Registers};
+use crate::gameboy::cpu::registers::{SingleRegister, RegisterPair, Registers};
 use crate::gameboy::cpu::flags::{Flags, Conditions};
 
 #[derive(Debug)]
@@ -9,18 +9,28 @@ pub struct CPU {
     interrupt: u8,   // Interrupt Enable
     registers: Registers,
     flags: Flags,
+    instruction: u8,
 }
 
 impl CPU {
     pub fn fetch_decode_execute(&mut self, memory: &mut crate::gameboy::memory::Memory) {
         // Fetch the next instruction
         println!("PC: 0x{:04X}", self.pc);
-        let instruction = self.fetch_instruction(memory);
+        self.instruction = self.fetch_instruction(memory);
         // println!("Fetched instruction: 0x{:02X}", instruction);
 
         // Decode and execute the instruction
         // dbg!(&self);
-        match instruction {
+        match self.instruction {
+
+            0x06 => self.ld_immediate(memory),
+            0x16 => self.ld_immediate(memory),
+            0x26 => self.ld_immediate(memory),
+            0x36 => self.ld_immediate(memory),
+            0x0E => self.ld_immediate(memory),
+            0x1E => self.ld_immediate(memory),
+            0x2E => self.ld_immediate(memory),
+            0x3E => self.ld_immediate(memory),
 
             0x18 => self.conditional_jump_relative(memory, Conditions::NONE),
             0x20 => self.conditional_jump_relative(memory, Conditions::NZ),
@@ -28,10 +38,10 @@ impl CPU {
             0x30 => self.conditional_jump_relative(memory, Conditions::NC),
             0x38 => self.conditional_jump_relative(memory, Conditions::C),
 
-            0x01 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
-            0x11 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
-            0x21 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
-            0x31 => self.ld_nn(memory, self.get_register_pair_from_opcode(instruction)),
+            0x01 => self.ld_nn(memory),
+            0x11 => self.ld_nn(memory),
+            0x21 => self.ld_nn(memory),
+            0x31 => self.ld_nn(memory),
 
             0x02 => self.ld_indirect(memory, RegisterPair::BC, 0),
             0x12 => self.ld_indirect(memory, RegisterPair::DE, 0),
@@ -40,11 +50,11 @@ impl CPU {
 
             // Single register ALU operations
             // 0x80..=0xBF => self.alu_r(opcode), // TODO: Decode the opcode to determine the operation and register
-            0xA8..=0xAF => self.xor(self.get_alu_register(instruction, memory)),
+            0xA8..=0xAF => self.xor(self.get_alu_register(self.instruction, memory)),
 
             0xCB => self.extended_instruction(memory),
 
-            _ => panic!("Unknown opcode: 0x{:02X}", instruction),
+            _ => panic!("Unknown opcode: 0x{:02X}", self.instruction),
         }
         // dbg!(&self);
     }
@@ -82,6 +92,20 @@ impl CPU {
         }
     }
 
+    fn get_single_register_from_opcode(&self, opcode: u8) -> crate::gameboy::cpu::registers::SingleRegister {
+        match opcode & 0x07 {
+            0x00 => SingleRegister::B,
+            0x01 => SingleRegister::C,
+            0x02 => SingleRegister::D,
+            0x03 => SingleRegister::E,
+            0x04 => SingleRegister::H,
+            0x05 => SingleRegister::L,
+            0x06 => SingleRegister::HL, // (HL) indirect
+            0x07 => SingleRegister::A,
+            _ => panic!("Invalid single register code in opcode: 0x{:02X}", opcode),
+        }
+    }
+
     // Gets the pair enum from bits 4-5 of opcode (for 16-bit operations)
     fn get_register_pair_from_opcode(&self, opcode: u8) -> RegisterPair {
         match (opcode >> 4) & 0x03 {
@@ -113,11 +137,34 @@ impl CPU {
     // --- Instruction Implementations ---
     // -----------------------------------
 
-    fn ld_nn(&mut self, memory: &crate::gameboy::memory::Memory, register_pair: RegisterPair) {
+    fn ld_immediate(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        // Fetch the immediate byte
+        let value = self.fetch_instruction(memory);
+
+        // Determine the target register from the opcode
+        let target_register = self.get_single_register_from_opcode(self.instruction);
+        match target_register {
+            SingleRegister::A => self.registers.a = value,
+            SingleRegister::B => self.registers.b = value,
+            SingleRegister::C => self.registers.c = value,
+            SingleRegister::D => self.registers.d = value,
+            SingleRegister::E => self.registers.e = value,
+            SingleRegister::H => self.registers.h = value,
+            SingleRegister::L => self.registers.l = value,
+            SingleRegister::HL => {
+                let address = self.registers.get_hl();
+                memory.write_byte(address, value);
+            }
+        }
+        println!("Loaded immediate 0x{:02X} into {:?}", value, target_register);
+    }
+
+    fn ld_nn(&mut self, memory: &crate::gameboy::memory::Memory) {
         // Fetch the next two bytes for the immediate value
         let value = self.fetch_two_bytes(memory);
 
         // Load the value into the specified register pair
+        let register_pair = self.get_register_pair_from_opcode(self.instruction);
         match register_pair {
             RegisterPair::BC => self.registers.set_bc(value),
             RegisterPair::DE => self.registers.set_de(value),
