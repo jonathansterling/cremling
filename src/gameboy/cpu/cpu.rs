@@ -23,15 +23,8 @@ impl CPU {
         // Decode and execute the instruction
         // dbg!(&self);
         match self.instruction {
-
-            0x06 => self.ld_immediate(memory),
-            0x16 => self.ld_immediate(memory),
-            0x26 => self.ld_immediate(memory),
-            0x36 => self.ld_immediate(memory),
-            0x0E => self.ld_immediate(memory),
-            0x1E => self.ld_immediate(memory),
-            0x2E => self.ld_immediate(memory),
-            0x3E => self.ld_immediate(memory),
+            0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => 
+                self.ld_immediate(memory),
 
             0x18 => self.conditional_jump_relative(memory, Conditions::NONE),
             0x20 => self.conditional_jump_relative(memory, Conditions::NZ),
@@ -39,10 +32,8 @@ impl CPU {
             0x30 => self.conditional_jump_relative(memory, Conditions::NC),
             0x38 => self.conditional_jump_relative(memory, Conditions::C),
 
-            0x01 => self.ld_nn(memory),
-            0x11 => self.ld_nn(memory),
-            0x21 => self.ld_nn(memory),
-            0x31 => self.ld_nn(memory),
+            0x01 | 0x11 | 0x21 | 0x31 =>
+                self.ld_nn(memory),
 
             0x02 => self.ld_indirect(memory, R16::BC, 0),
             0x12 => self.ld_indirect(memory, R16::DE, 0),
@@ -52,35 +43,15 @@ impl CPU {
             // ALU operations
             // 0x80..=0xBF => self.alu_r(opcode), // TODO: Decode the opcode to determine the operation and register
             0xA8..=0xAF => self.xor(memory),
-            0x04 => self.inc_r8(memory),
-            0x14 => self.inc_r8(memory),
-            0x24 => self.inc_r8(memory),
-            0x34 => self.inc_r8(memory),
-            0x0C => self.inc_r8(memory),
-            0x1C => self.inc_r8(memory),
-            0x2C => self.inc_r8(memory),
-            0x3C => self.inc_r8(memory),
 
-            0x05 => self.dec_r8(memory),
-            0x15 => self.dec_r8(memory),
-            0x25 => self.dec_r8(memory),
-            0x35 => self.dec_r8(memory),
-            0x0D => self.dec_r8(memory),
-            0x1D => self.dec_r8(memory),
-            0x2D => self.dec_r8(memory),
-            0x3D => self.dec_r8(memory),
-
-            0x03 => self.inc_r16(memory),
-            0x13 => self.inc_r16(memory),
-            0x23 => self.inc_r16(memory),
-            0x33 => self.inc_r16(memory),
-
-            0x0B => self.dec_r16(memory),
-            0x1B => self.dec_r16(memory),
-            0x2B => self.dec_r16(memory),
-            0x3B => self.dec_r16(memory),
-
-
+            0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C =>
+                self.inc_r8(memory),
+            0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D =>
+                self.dec_r8(memory),
+            0x03 | 0x13 | 0x23 | 0x33 =>
+                self.inc_r16(memory),
+            0x0B | 0x1B | 0x2B | 0x3B =>
+                self.dec_r16(memory),
 
             0xE2 => self.ld_c_indirect_a(memory),
 
