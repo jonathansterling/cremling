@@ -1,4 +1,4 @@
-use crate::gameboy::cpu::registers::{SingleRegister, RegisterPair, Registers};
+use crate::gameboy::cpu::registers::{R8, R16, Registers};
 use crate::gameboy::cpu::flags::{Flags, Conditions};
 
 #[derive(Debug)]
@@ -44,14 +44,43 @@ impl CPU {
             0x21 => self.ld_nn(memory),
             0x31 => self.ld_nn(memory),
 
-            0x02 => self.ld_indirect(memory, RegisterPair::BC, 0),
-            0x12 => self.ld_indirect(memory, RegisterPair::DE, 0),
-            0x22 => self.ld_indirect(memory, RegisterPair::HL, 1),
-            0x32 => self.ld_indirect(memory, RegisterPair::HL, -1),
+            0x02 => self.ld_indirect(memory, R16::BC, 0),
+            0x12 => self.ld_indirect(memory, R16::DE, 0),
+            0x22 => self.ld_indirect(memory, R16::HL, 1),
+            0x32 => self.ld_indirect(memory, R16::HL, -1),
 
-            // Single register ALU operations
+            // ALU operations
             // 0x80..=0xBF => self.alu_r(opcode), // TODO: Decode the opcode to determine the operation and register
-            0xA8..=0xAF => self.xor(self.get_alu_register(self.instruction, memory)),
+            0xA8..=0xAF => self.xor(memory),
+            0x04 => self.inc_r8(memory),
+            0x14 => self.inc_r8(memory),
+            0x24 => self.inc_r8(memory),
+            0x34 => self.inc_r8(memory),
+            0x0C => self.inc_r8(memory),
+            0x1C => self.inc_r8(memory),
+            0x2C => self.inc_r8(memory),
+            0x3C => self.inc_r8(memory),
+
+            0x05 => self.dec_r8(memory),
+            0x15 => self.dec_r8(memory),
+            0x25 => self.dec_r8(memory),
+            0x35 => self.dec_r8(memory),
+            0x0D => self.dec_r8(memory),
+            0x1D => self.dec_r8(memory),
+            0x2D => self.dec_r8(memory),
+            0x3D => self.dec_r8(memory),
+
+            0x03 => self.inc_r16(memory),
+            0x13 => self.inc_r16(memory),
+            0x23 => self.inc_r16(memory),
+            0x33 => self.inc_r16(memory),
+
+            0x0B => self.dec_r16(memory),
+            0x1B => self.dec_r16(memory),
+            0x2B => self.dec_r16(memory),
+            0x3B => self.dec_r16(memory),
+
+
 
             0xE2 => self.ld_c_indirect_a(memory),
 
@@ -112,27 +141,27 @@ impl CPU {
         }
     }
 
-    fn get_single_register_from_opcode(&self, opcode: u8) -> crate::gameboy::cpu::registers::SingleRegister {
+    fn get_r8_from_opcode(&self, opcode: u8) -> crate::gameboy::cpu::registers::R8 {
         match opcode & 0x07 {
-            0x00 => SingleRegister::B,
-            0x01 => SingleRegister::C,
-            0x02 => SingleRegister::D,
-            0x03 => SingleRegister::E,
-            0x04 => SingleRegister::H,
-            0x05 => SingleRegister::L,
-            0x06 => SingleRegister::HL, // (HL) indirect
-            0x07 => SingleRegister::A,
+            0x00 => R8::B,
+            0x01 => R8::C,
+            0x02 => R8::D,
+            0x03 => R8::E,
+            0x04 => R8::H,
+            0x05 => R8::L,
+            0x06 => R8::HL, // (HL) indirect
+            0x07 => R8::A,
             _ => panic!("Invalid single register code in opcode: 0x{:02X}", opcode),
         }
     }
 
     // Gets the pair enum from bits 4-5 of opcode (for 16-bit operations)
-    fn get_register_pair_from_opcode(&self, opcode: u8) -> RegisterPair {
+    fn get_r16_from_opcode(&self, opcode: u8) -> R16 {
         match (opcode >> 4) & 0x03 {
-            0x00 => RegisterPair::BC,
-            0x01 => RegisterPair::DE,
-            0x02 => RegisterPair::HL,
-            0x03 => RegisterPair::SP,
+            0x00 => R16::BC,
+            0x01 => R16::DE,
+            0x02 => R16::HL,
+            0x03 => R16::SP,
             _ => panic!("Invalid register pair code in opcode: 0x{:02X}", opcode),
         }
     }
@@ -161,21 +190,10 @@ impl CPU {
         // Fetch the immediate byte
         let value = self.fetch_instruction(memory);
 
-        // Determine the target register from the opcode
-        let target_register = self.get_single_register_from_opcode(self.instruction);
-        match target_register {
-            SingleRegister::A => self.registers.a = value,
-            SingleRegister::B => self.registers.b = value,
-            SingleRegister::C => self.registers.c = value,
-            SingleRegister::D => self.registers.d = value,
-            SingleRegister::E => self.registers.e = value,
-            SingleRegister::H => self.registers.h = value,
-            SingleRegister::L => self.registers.l = value,
-            SingleRegister::HL => {
-                let address = self.registers.get_hl();
-                memory.write_byte(address, value);
-            }
-        }
+        // Determine the target register from the opcode and write to it
+        let target_register = self.get_r8_from_opcode(self.instruction);
+        self.registers.write_r8(target_register, value, memory);
+
         println!("Loaded immediate 0x{:02X} into {:?}", value, target_register);
     }
 
@@ -184,33 +202,104 @@ impl CPU {
         let value = self.fetch_two_bytes(memory);
 
         // Load the value into the specified register pair
-        let register_pair = self.get_register_pair_from_opcode(self.instruction);
-        match register_pair {
-            RegisterPair::BC => self.registers.set_bc(value),
-            RegisterPair::DE => self.registers.set_de(value),
-            RegisterPair::HL => self.registers.set_hl(value),
-            RegisterPair::SP => self.sp = value,
+        let register_pair = self.get_r16_from_opcode(self.instruction);
+
+        // Handle SP separately since it's in CPU, not Registers
+        if let R16::SP = register_pair {
+            self.sp = value;
+        } else {
+            self.registers.write_r16(register_pair, value);
         }
+
         println!("Loaded 0x{:04X} into {:?}", value, register_pair);
     }
 
-    fn xor(&mut self, value: u8) {
+    fn xor(&mut self, memory: &crate::gameboy::memory::Memory) {
+        let register = self.get_r8_from_opcode(self.instruction);
+        let value = self.registers.read_r8(register, memory);
+
         // Perform XOR operation
         let result = self.registers.a ^ value;
         self.registers.a = result;
 
         // Set flags: Z=1, N=0, H=0, C=0
         self.flags.set(result == 0, false, false, false);
-        println!("Result of XOR A: 0x{:02X}", result);
+        println!("Result of XOR A with {:?}: 0x{:02X}", register, result);
     }
 
-    fn ld_indirect(&mut self, memory: &mut crate::gameboy::memory::Memory, register_pair: RegisterPair, delta: i8) {
+    fn inc_r8(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        let register = self.get_r8_from_opcode(self.instruction);
+        let old_value = self.registers.read_r8(register, memory);
+        let new_value = old_value.wrapping_add(1);
+        self.registers.write_r8(register, new_value, memory);
+
+        // Set flags: Z if result is zero, N=0, H if carry from bit 3, C unchanged
+        let half_carry = (old_value & 0x0F) == 0x0F;
+        self.flags.set(new_value == 0, false, half_carry, self.flags.carry);
+        println!("Incremented {:?}: 0x{:02X} -> 0x{:02X}", register, old_value, new_value);
+    }
+
+    fn dec_r8(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        let register = self.get_r8_from_opcode(self.instruction);
+        let old_value = self.registers.read_r8(register, memory);
+        let new_value = old_value.wrapping_sub(1);
+        self.registers.write_r8(register, new_value, memory);
+
+        // Set flags: Z if result is zero, N=1, H if borrow from bit 4, C unchanged
+        let half_borrow = (old_value & 0x0F) == 0x00;
+        self.flags.set(new_value == 0, true, half_borrow, self.flags.carry);
+        println!("Decremented {:?}: 0x{:02X} -> 0x{:02X}", register, old_value, new_value);
+    }
+
+    fn inc_r16(&mut self, _memory: &mut crate::gameboy::memory::Memory) {
+        let register_pair = self.get_r16_from_opcode(self.instruction);
+
+        // Handle SP separately since it's in CPU, not Registers
+        let old_value = if let R16::SP = register_pair {
+            self.sp
+        } else {
+            self.registers.read_r16(register_pair)
+        };
+
+        let new_value = old_value.wrapping_add(1);
+
+        if let R16::SP = register_pair {
+            self.sp = new_value;
+        } else {
+            self.registers.write_r16(register_pair, new_value);
+        }
+
+        println!("Incremented {:?}: 0x{:04X} -> 0x{:04X}", register_pair, old_value, new_value);
+    }
+
+    fn dec_r16(&mut self, _memory: &mut crate::gameboy::memory::Memory) {
+        let register_pair = self.get_r16_from_opcode(self.instruction);
+
+        // Handle SP separately since it's in CPU, not Registers
+        let old_value = if let R16::SP = register_pair {
+            self.sp
+        } else {
+            self.registers.read_r16(register_pair)
+        };
+
+        let new_value = old_value.wrapping_sub(1);
+
+        if let R16::SP = register_pair {
+            self.sp = new_value;
+        } else {
+            self.registers.write_r16(register_pair, new_value);
+        }
+
+        println!("Decremented {:?}: 0x{:04X} -> 0x{:04X}", register_pair, old_value, new_value);
+    }
+
+    fn ld_indirect(&mut self, memory: &mut crate::gameboy::memory::Memory, register_pair: R16, delta: i8) {
         // Get the base address from the specified register pair
         let base_address = match register_pair {
-            RegisterPair::BC => self.registers.get_bc(),
-            RegisterPair::DE => self.registers.get_de(),
-            RegisterPair::HL => self.registers.get_hl(),
-            RegisterPair::SP => self.sp,
+            R16::BC => self.registers.get_bc(),
+            R16::DE => self.registers.get_de(),
+            R16::HL => self.registers.get_hl(),
+            R16::SP => self.sp,
         };
 
         // Store the value of A into memory at the base address
@@ -220,10 +309,10 @@ impl CPU {
         if delta != 0 {
             let adjusted_address = base_address.wrapping_add(delta as u16);
             match register_pair {
-                RegisterPair::BC => self.registers.set_bc(adjusted_address),
-                RegisterPair::DE => self.registers.set_de(adjusted_address),
-                RegisterPair::HL => self.registers.set_hl(adjusted_address),
-                RegisterPair::SP => self.sp = adjusted_address,
+                R16::BC => self.registers.set_bc(adjusted_address),
+                R16::DE => self.registers.set_de(adjusted_address),
+                R16::HL => self.registers.set_hl(adjusted_address),
+                R16::SP => self.sp = adjusted_address,
             }
         }
 
