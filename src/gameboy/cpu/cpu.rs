@@ -6,10 +6,11 @@ use crate::gameboy::cpu::flags::{Flags, Conditions};
 pub struct CPU {
     pc: u16,         // Program Counter
     sp: u16,         // Stack Pointer
-    interrupt: u8,   // Interrupt Enable
     registers: Registers,
     flags: Flags,
     instruction: u8,
+    interrupt: u8,   // Interrupt Enable
+    ie_enable_pending: bool,
 }
 
 impl CPU {
@@ -52,11 +53,30 @@ impl CPU {
             // 0x80..=0xBF => self.alu_r(opcode), // TODO: Decode the opcode to determine the operation and register
             0xA8..=0xAF => self.xor(self.get_alu_register(self.instruction, memory)),
 
+            0xE2 => self.ld_c_indirect_a(memory),
+
+            // Returns
+            0xC0 => self.ret(memory, Conditions::NZ),
+            0xC8 => self.ret(memory, Conditions::Z),
+            0xD0 => self.ret(memory, Conditions::NC),
+            0xD8 => self.ret(memory, Conditions::C),
+            0xC9 => self.ret(memory, Conditions::NONE),
+
+            // Interrupts
+            0xD9 => self.reti(memory),
+            0xFB => self.pending_enable_interrupts(),
+            0xF3 => self.disable_interrupts(),
+
             0xCB => self.extended_instruction(memory),
 
             _ => panic!("Unknown opcode: 0x{:02X}", self.instruction),
         }
         // dbg!(&self);
+
+        if self.ie_enable_pending {
+            self.enable_interrupts();
+            self.ie_enable_pending = false;
+        }
     }
 
     fn fetch_instruction(&mut self, memory: &crate::gameboy::memory::Memory) -> u8 {
@@ -231,6 +251,54 @@ impl CPU {
         } else {
             println!("Did not jump on condition {:?}, PC remains at 0x{:04X}", condition, self.pc);
         }
+    }
+
+    fn ld_c_indirect_a(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        let address = 0xFF00 | (self.registers.c as u16);
+        memory.write_byte(address, self.registers.a);
+        println!("Stored A (0x{:02X}) into address 0x{:04X}", self.registers.a, address);
+    }
+
+    fn ret(&mut self, memory: &crate::gameboy::memory::Memory, condition: Conditions) {
+        if self.flags.condition(condition) {
+            self.return_from_interrupt(memory);
+            println!("Returned to address 0x{:04X} on condition {:?}", self.pc, condition);
+        } else {
+            println!("Did not return on condition {:?}, PC remains at 0x{:04X}", condition, self.pc);
+        }
+    }
+
+    fn reti(&mut self, memory: &crate::gameboy::memory::Memory) {
+        self.return_from_interrupt(memory);
+
+        // Enable interrupts after returning
+        self.enable_interrupts();
+
+        println!("Returned from interrupt to address 0x{:04X}", self.pc);
+    }
+
+    fn return_from_interrupt(&mut self, memory: &crate::gameboy::memory::Memory) {
+        // Pop the return address from the stack
+        let low_byte = memory.read_byte(self.sp) as u16;
+        self.sp = self.sp.wrapping_add(1);
+        let high_byte = memory.read_byte(self.sp) as u16;
+        self.sp = self.sp.wrapping_add(1);
+        self.pc = (high_byte << 8) | low_byte;
+    }
+
+    fn pending_enable_interrupts(&mut self) {
+        self.ie_enable_pending = true;
+        println!("Interrupts will be enabled after the next instruction");
+    }
+
+    fn disable_interrupts(&mut self) {
+        self.interrupt = 0;
+        println!("Disabled interrupts");
+    }
+
+    fn enable_interrupts(&mut self) {
+        self.interrupt = 1;
+        println!("Enabled interrupts");
     }
 }
 
