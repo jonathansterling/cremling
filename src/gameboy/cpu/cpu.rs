@@ -51,10 +51,15 @@ impl CPU {
             0x01 | 0x11 | 0x21 | 0x31 =>
                 self.ld_nn(memory),
 
-            0x02 => self.ld_indirect(memory, R16::BC, 0),
-            0x12 => self.ld_indirect(memory, R16::DE, 0),
-            0x22 => self.ld_indirect(memory, R16::HL, 1),
-            0x32 => self.ld_indirect(memory, R16::HL, -1),
+            0x02 => self.ld_indirect_dest(memory, R16::BC, 0),
+            0x12 => self.ld_indirect_dest(memory, R16::DE, 0),
+            0x22 => self.ld_indirect_dest(memory, R16::HL, 1),
+            0x32 => self.ld_indirect_dest(memory, R16::HL, -1),
+
+            0x0A => self.ld_indirect_src(memory, R16::BC, 0),
+            0x1A => self.ld_indirect_src(memory, R16::DE, 0),
+            0x2A => self.ld_indirect_src(memory, R16::HL, 1),
+            0x3A => self.ld_indirect_src(memory, R16::HL, -1),
 
             // ALU operations
             // 0x80..=0xBF => self.alu_r(opcode), // TODO: Decode the opcode to determine the operation and register
@@ -85,6 +90,12 @@ impl CPU {
             0xD9 => self.reti(memory),
             0xFB => self.pending_enable_interrupts(),
             0xF3 => self.disable_interrupts(),
+
+            // LDH
+            0xE0 => self.ldh_imm_a(memory),
+            0xF0 => self.ldh_a_imm(memory),
+            0xE8 => self.ldh_c_a(memory),
+            0xF8 => self.ldh_a_c(memory),
 
             0xCB => self.extended_instruction(memory),
 
@@ -181,6 +192,8 @@ impl CPU {
     // --- Instruction Implementations ---
     // -----------------------------------
 
+    // --- Misc Loads ---
+
     fn ld_immediate(&mut self, memory: &mut crate::gameboy::memory::Memory) {
         // Fetch the immediate byte
         let value = self.fetch_instruction(memory);
@@ -217,6 +230,105 @@ impl CPU {
 
         println!("Loaded 0x{:02X} from {:?} into {:?}", value, src_register, dest_register);
     }
+
+    fn ld_indirect_dest(&mut self, memory: &mut crate::gameboy::memory::Memory, register_pair: R16, delta: i8) {
+        // Get the base address from the specified register pair
+        let base_address = match register_pair {
+            R16::BC => self.registers.get_bc(),
+            R16::DE => self.registers.get_de(),
+            R16::HL => self.registers.get_hl(),
+            R16::SP => self.sp,
+        };
+
+        // Store the value of A into memory at the base address
+        memory.write_byte(base_address, self.registers.a);
+
+        // Adjust the base address by delta if needed
+        if delta != 0 {
+            let adjusted_address = base_address.wrapping_add_signed(delta as i16);
+            match register_pair {
+                R16::BC => self.registers.set_bc(adjusted_address),
+                R16::DE => self.registers.set_de(adjusted_address),
+                R16::HL => self.registers.set_hl(adjusted_address),
+                R16::SP => self.sp = adjusted_address,
+            }
+        }
+
+        println!("Stored 0x{:02X} into memory at 0x{:04X}, adjusted by delta {}", self.registers.a, base_address, delta);
+    }
+
+    fn ld_indirect_src(&mut self, memory: &crate::gameboy::memory::Memory, register_pair: R16, delta: i8) {
+        // Get the base address from the specified register pair
+        let base_address = match register_pair {
+            R16::BC => self.registers.get_bc(),
+            R16::DE => self.registers.get_de(),
+            R16::HL => self.registers.get_hl(),
+            R16::SP => self.sp,
+        };
+
+        // Load the value from memory at the base address into A
+        let value = memory.read_byte(base_address);
+        self.registers.a = value;
+
+        // Adjust the source address by delta if needed
+        if delta != 0 {
+            let adjusted_address = base_address.wrapping_add_signed(delta as i16);
+            match register_pair {
+                R16::BC => self.registers.set_bc(adjusted_address),
+                R16::DE => self.registers.set_de(adjusted_address),
+                R16::HL => self.registers.set_hl(adjusted_address),
+                R16::SP => self.sp = adjusted_address,
+            }
+        }
+
+        println!("Loaded 0x{:02X} from memory at 0x{:04X} into A, adjusted by delta {}", value, base_address, delta);
+    }
+
+    fn ld_c_indirect_a(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        let address = 0xFF00 | (self.registers.c as u16);
+        memory.write_byte(address, self.registers.a);
+        println!("Stored A (0x{:02X}) into address 0x{:04X}", self.registers.a, address);
+    }
+
+    // --- High RAM / I/O Region Loads ---
+
+    fn ldh_imm_a(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        // Fetch the immediate 8-bit address offset
+        let offset = self.fetch_instruction(memory);
+        let address = 0xFF00 | (offset as u16);
+
+        // Load the value of A into the calculated address
+        memory.write_byte(address, self.registers.a);
+
+        println!("Stored A (0x{:02X}) into address 0x{:04X}", self.registers.a, address);
+    }
+
+    fn ldh_a_imm(&mut self, memory: &crate::gameboy::memory::Memory) {
+        // Fetch the immediate 8-bit address offset
+        let offset = self.fetch_instruction(memory);
+        let address = 0xFF00 | (offset as u16);
+
+        // Load the value from the calculated address into A
+        let value = memory.read_byte(address);
+        self.registers.a = value;
+
+        println!("Loaded 0x{:02X} from address 0x{:04X} into A", value, address);
+    }
+
+    fn ldh_c_a(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        let address = 0xFF00 | (self.registers.c as u16);
+        memory.write_byte(address, self.registers.a);
+        println!("Stored A (0x{:02X}) into address 0x{:04X}", self.registers.a, address);
+    }
+
+    fn ldh_a_c(&mut self, memory: &crate::gameboy::memory::Memory) {
+        let address = 0xFF00 | (self.registers.c as u16);
+        let value = memory.read_byte(address);
+        self.registers.a = value;
+        println!("Loaded 0x{:02X} from address 0x{:04X} into A", value, address);
+    }
+
+    // --- ALU ---
 
     fn xor(&mut self, memory: &crate::gameboy::memory::Memory) {
         let register = self.get_r8_from_opcode(self.instruction);
@@ -297,31 +409,7 @@ impl CPU {
         println!("Decremented {:?}: 0x{:04X} -> 0x{:04X}", register_pair, old_value, new_value);
     }
 
-    fn ld_indirect(&mut self, memory: &mut crate::gameboy::memory::Memory, register_pair: R16, delta: i8) {
-        // Get the base address from the specified register pair
-        let base_address = match register_pair {
-            R16::BC => self.registers.get_bc(),
-            R16::DE => self.registers.get_de(),
-            R16::HL => self.registers.get_hl(),
-            R16::SP => self.sp,
-        };
-
-        // Store the value of A into memory at the base address
-        memory.write_byte(base_address, self.registers.a);
-
-        // Adjust the base address by delta if needed
-        if delta != 0 {
-            let adjusted_address = base_address.wrapping_add(delta as u16);
-            match register_pair {
-                R16::BC => self.registers.set_bc(adjusted_address),
-                R16::DE => self.registers.set_de(adjusted_address),
-                R16::HL => self.registers.set_hl(adjusted_address),
-                R16::SP => self.sp = adjusted_address,
-            }
-        }
-
-        println!("Stored 0x{:02X} into memory at 0x{:04X}, adjusted by delta {}", self.registers.a, base_address, delta);
-    }
+    // --- Uncategorized ---
 
     fn bit(&mut self, opcode: u8, memory: &crate::gameboy::memory::Memory) {
         let bit_position = self.get_bit_from_opcode(opcode);
@@ -344,12 +432,6 @@ impl CPU {
         } else {
             println!("Did not jump on condition {:?}, PC remains at 0x{:04X}", condition, self.pc);
         }
-    }
-
-    fn ld_c_indirect_a(&mut self, memory: &mut crate::gameboy::memory::Memory) {
-        let address = 0xFF00 | (self.registers.c as u16);
-        memory.write_byte(address, self.registers.a);
-        println!("Stored A (0x{:02X}) into address 0x{:04X}", self.registers.a, address);
     }
 
     fn ret(&mut self, memory: &crate::gameboy::memory::Memory, condition: Conditions) {
