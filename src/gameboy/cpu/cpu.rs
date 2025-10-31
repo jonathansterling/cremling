@@ -9,8 +9,10 @@ pub struct CPU {
     registers: Registers,
     flags: Flags,
     instruction: u8,
-    interrupt: u8,   // Interrupt Enable
-    ie_enable_pending: bool,
+    ime: bool,   // Interrupt Master Enable
+    ime_enable_pending: bool,
+    halted: bool,
+    halt_bug: bool,
 }
 
 impl CPU {
@@ -19,6 +21,20 @@ impl CPU {
         println!("PC: 0x{:04X}", self.pc);
         self.instruction = self.fetch_instruction(memory);
         // println!("Fetched instruction: 0x{:02X}", instruction);
+
+        // TODO: Handle HALTS and service interrupts correctly. This is mostly placeholder for now.
+        // See https://gbdev.io/pandocs/halt.html
+        if self.halted {
+            if self.ime_enable_pending {
+                self.halted = false;
+                if self.ime == true {
+                    self.service_interrupt(memory, 0x40); // Example interrupt vector
+                } else {
+                    self.tick();
+                    return;
+                }
+            }
+        }
 
         // Decode and execute the instruction
         // dbg!(&self);
@@ -43,6 +59,9 @@ impl CPU {
             // ALU operations
             // 0x80..=0xBF => self.alu_r(opcode), // TODO: Decode the opcode to determine the operation and register
             0xA8..=0xAF => self.xor(memory),
+
+            0x40..=0x7F if self.instruction != 0x76 => self.ld_r8_r8(memory),
+            0x76 => self.halt(),
 
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C =>
                 self.inc_r8(memory),
@@ -73,9 +92,9 @@ impl CPU {
         }
         // dbg!(&self);
 
-        if self.ie_enable_pending {
+        if self.ime_enable_pending {
             self.enable_interrupts();
-            self.ie_enable_pending = false;
+            self.ime_enable_pending = false;
         }
     }
 
@@ -91,6 +110,11 @@ impl CPU {
             0x40..=0x7F => self.bit(extended_opcode, memory),
             _ => panic!("Unknown extended opcode: 0x{:02X}", extended_opcode),
         }
+    }
+
+    fn tick(&mut self) {
+        // Placeholder for tick implementation
+        println!("CPU tick");
     }
 
     // -------------------------------
@@ -183,6 +207,15 @@ impl CPU {
         }
 
         println!("Loaded 0x{:04X} into {:?}", value, register_pair);
+    }
+
+    fn ld_r8_r8(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        let dest_register = self.get_r8_from_opcode((self.instruction >> 3) & 0x07);
+        let src_register = self.get_r8_from_opcode(self.instruction & 0x07);
+        let value = self.registers.read_r8(src_register, memory);
+        self.registers.write_r8(dest_register, value, memory);
+
+        println!("Loaded 0x{:02X} from {:?} into {:?}", value, src_register, dest_register);
     }
 
     fn xor(&mut self, memory: &crate::gameboy::memory::Memory) {
@@ -347,18 +380,40 @@ impl CPU {
     }
 
     fn pending_enable_interrupts(&mut self) {
-        self.ie_enable_pending = true;
+        self.ime_enable_pending = true;
         println!("Interrupts will be enabled after the next instruction");
     }
 
     fn disable_interrupts(&mut self) {
-        self.interrupt = 0;
+        self.ime = false;
         println!("Disabled interrupts");
     }
 
     fn enable_interrupts(&mut self) {
-        self.interrupt = 1;
+        self.ime = true;
         println!("Enabled interrupts");
+    }
+
+    fn halt(&mut self) {
+        self.halted = true;
+    }
+
+    fn service_interrupt(&mut self, memory: &mut crate::gameboy::memory::Memory, interrupt_vector: u16) {
+        // Disable further interrupts
+        self.ime = false;
+
+        // Push the current PC onto the stack
+        let pc_high = (self.pc >> 8) as u8;
+        let pc_low = (self.pc & 0x00FF) as u8;
+        self.sp = self.sp.wrapping_sub(1);
+        memory.write_byte(self.sp, pc_high);
+        self.sp = self.sp.wrapping_sub(1);
+        memory.write_byte(self.sp, pc_low);
+
+        // Jump to the interrupt vector
+        self.pc = interrupt_vector;
+
+        println!("Serviced interrupt, jumped to vector 0x{:04X}", interrupt_vector);
     }
 }
 
