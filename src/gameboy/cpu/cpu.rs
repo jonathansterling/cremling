@@ -1,5 +1,4 @@
-use crate::gameboy::cpu::registers::{R8, R16, Registers};
-use crate::gameboy::cpu::flags::{Flags, Conditions};
+use crate::gameboy::cpu::registers::{R8, R16, Registers, Conditions};
 
 #[derive(Debug)]
 #[derive(Default)]
@@ -7,7 +6,6 @@ pub struct CPU {
     pc: u16,         // Program Counter
     sp: u16,         // Stack Pointer
     registers: Registers,
-    flags: Flags,
     instruction: u8,
     ime: bool,   // Interrupt Master Enable
     ime_enable_pending: bool,
@@ -79,6 +77,13 @@ impl CPU {
 
             0xE2 => self.ld_c_indirect_a(memory),
 
+            // Calls
+            0xC4 => self.call(memory, Conditions::NZ),
+            0xD4 => self.call(memory, Conditions::NC),
+            0xCC => self.call(memory, Conditions::Z),
+            0xDC => self.call(memory, Conditions::C),
+            0xCD => self.call(memory, Conditions::NONE),
+
             // Returns
             0xC0 => self.ret(memory, Conditions::NZ),
             0xC8 => self.ret(memory, Conditions::Z),
@@ -96,6 +101,11 @@ impl CPU {
             0xF0 => self.ldh_a_imm(memory),
             0xE8 => self.ldh_c_a(memory),
             0xF8 => self.ldh_a_c(memory),
+
+            0xC1 | 0xD1 | 0xE1 | 0xF1 =>
+                self.pop(memory),
+            0xC5 | 0xD5 | 0xE5 | 0xF5 =>
+                self.push(memory),
 
             0xCB => self.extended_instruction(memory),
 
@@ -162,12 +172,22 @@ impl CPU {
     }
 
     // Gets the pair enum from bits 4-5 of opcode (for 16-bit operations)
-    fn get_r16_from_opcode(&self, opcode: u8) -> R16 {
+    fn get_r16_from_ld_inc_dec_opcode(&self, opcode: u8) -> R16 {
         match (opcode >> 4) & 0x03 {
             0x00 => R16::BC,
             0x01 => R16::DE,
             0x02 => R16::HL,
             0x03 => R16::SP,
+            _ => panic!("Invalid register pair code in opcode: 0x{:02X}", opcode),
+        }
+    }
+
+    fn get_r16_from_push_pop_opcode(&self, opcode: u8) -> R16 {
+        match (opcode >> 4) & 0x03 {
+            0x00 => R16::BC,
+            0x01 => R16::DE,
+            0x02 => R16::HL,
+            0x03 => R16::AF,
             _ => panic!("Invalid register pair code in opcode: 0x{:02X}", opcode),
         }
     }
@@ -210,7 +230,7 @@ impl CPU {
         let value = self.fetch_two_bytes(memory);
 
         // Load the value into the specified register pair
-        let register_pair = self.get_r16_from_opcode(self.instruction);
+        let register_pair = self.get_r16_from_ld_inc_dec_opcode(self.instruction);
 
         // Handle SP separately since it's in CPU, not Registers
         if let R16::SP = register_pair {
@@ -238,6 +258,7 @@ impl CPU {
             R16::DE => self.registers.get_de(),
             R16::HL => self.registers.get_hl(),
             R16::SP => self.sp,
+            R16::AF => panic!("AF register pair cannot be used for indirect memory access"),
         };
 
         // Store the value of A into memory at the base address
@@ -251,6 +272,7 @@ impl CPU {
                 R16::DE => self.registers.set_de(adjusted_address),
                 R16::HL => self.registers.set_hl(adjusted_address),
                 R16::SP => self.sp = adjusted_address,
+                R16::AF => panic!("AF register pair cannot be used for indirect memory access"),
             }
         }
 
@@ -264,6 +286,7 @@ impl CPU {
             R16::DE => self.registers.get_de(),
             R16::HL => self.registers.get_hl(),
             R16::SP => self.sp,
+            R16::AF => panic!("AF register pair cannot be used for indirect memory access"),
         };
 
         // Load the value from memory at the base address into A
@@ -278,6 +301,7 @@ impl CPU {
                 R16::DE => self.registers.set_de(adjusted_address),
                 R16::HL => self.registers.set_hl(adjusted_address),
                 R16::SP => self.sp = adjusted_address,
+                R16::AF => panic!("AF register pair cannot be used for indirect memory access"),
             }
         }
 
@@ -296,6 +320,11 @@ impl CPU {
         // Fetch the immediate 8-bit address offset
         let offset = self.fetch_instruction(memory);
         let address = 0xFF00 | (offset as u16);
+
+        // Temporary panic to stop execution once the boot ROM execution is complete
+        if address == 0xFF50 {
+            panic!("Boot ROM access disabled! Ready to switch to cartridge ROM.");
+        }
 
         // Load the value of A into the calculated address
         memory.write_byte(address, self.registers.a);
@@ -339,7 +368,7 @@ impl CPU {
         self.registers.a = result;
 
         // Set flags: Z=1, N=0, H=0, C=0
-        self.flags.set(result == 0, false, false, false);
+        self.registers.set_flags(result == 0, false, false, false);
         println!("Result of XOR A with {:?}: 0x{:02X}", register, result);
     }
 
@@ -351,7 +380,8 @@ impl CPU {
 
         // Set flags: Z if result is zero, N=0, H if carry from bit 3, C unchanged
         let half_carry = (old_value & 0x0F) == 0x0F;
-        self.flags.set(new_value == 0, false, half_carry, self.flags.carry);
+        let carry = self.registers.get_carry_flag();
+        self.registers.set_flags(new_value == 0, false, half_carry, carry);
         println!("Incremented {:?}: 0x{:02X} -> 0x{:02X}", register, old_value, new_value);
     }
 
@@ -363,12 +393,13 @@ impl CPU {
 
         // Set flags: Z if result is zero, N=1, H if borrow from bit 4, C unchanged
         let half_borrow = (old_value & 0x0F) == 0x00;
-        self.flags.set(new_value == 0, true, half_borrow, self.flags.carry);
+        let carry = self.registers.get_carry_flag();
+        self.registers.set_flags(new_value == 0, true, half_borrow, carry);
         println!("Decremented {:?}: 0x{:02X} -> 0x{:02X}", register, old_value, new_value);
     }
 
     fn inc_r16(&mut self, _memory: &mut crate::gameboy::memory::Memory) {
-        let register_pair = self.get_r16_from_opcode(self.instruction);
+        let register_pair = self.get_r16_from_ld_inc_dec_opcode(self.instruction);
 
         // Handle SP separately since it's in CPU, not Registers
         let old_value = if let R16::SP = register_pair {
@@ -389,7 +420,7 @@ impl CPU {
     }
 
     fn dec_r16(&mut self, _memory: &mut crate::gameboy::memory::Memory) {
-        let register_pair = self.get_r16_from_opcode(self.instruction);
+        let register_pair = self.get_r16_from_ld_inc_dec_opcode(self.instruction);
 
         // Handle SP separately since it's in CPU, not Registers
         let old_value = if let R16::SP = register_pair {
@@ -417,7 +448,8 @@ impl CPU {
         let bit_set = (value >> bit_position) & 0x01 != 0;
 
         // Set flags: Z = !(bit set), N = 0, H = 1
-        self.flags.set(!bit_set, false, true, self.flags.carry);
+        let carry = self.registers.get_carry_flag();
+        self.registers.set_flags(!bit_set, false, true, carry);
         println!("Tested bit {} of value 0x{:02X}, bit set: {}", bit_position, value, bit_set);
     }
 
@@ -425,7 +457,7 @@ impl CPU {
         // Fetch the signed 8-bit offset
         let offset = self.fetch_instruction(memory) as i8;
 
-        if self.flags.condition(condition) {
+        if self.registers.check_condition(condition) {
             // Calculate the new PC by adding the signed offset
             self.pc = self.pc.wrapping_add(offset as u16);
             println!("Jumped to address 0x{:04X} on condition {:?} (offset: {})", self.pc, condition, offset);
@@ -434,8 +466,62 @@ impl CPU {
         }
     }
 
+    fn pop(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        let register_pair = self.get_r16_from_push_pop_opcode(self.instruction);
+
+        // Pop low byte, then high byte
+        let low_byte = memory.read_byte(self.sp) as u16;
+        self.sp = self.sp.wrapping_add(1);
+        let high_byte = memory.read_byte(self.sp) as u16;
+        self.sp = self.sp.wrapping_add(1);
+
+        let value = (high_byte << 8) | low_byte;
+        self.registers.write_r16(register_pair, value);
+
+        println!("Popped 0x{:04X} into {:?}", value, register_pair);
+    }
+
+    fn push(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        let register_pair = self.get_r16_from_push_pop_opcode(self.instruction);
+        let value = self.registers.read_r16(register_pair);
+
+        // Push high byte, then low byte
+        let high_byte = (value >> 8) as u8;
+        let low_byte = (value & 0x00FF) as u8;
+        self.sp = self.sp.wrapping_sub(1);
+        memory.write_byte(self.sp, high_byte);
+        self.sp = self.sp.wrapping_sub(1);
+        memory.write_byte(self.sp, low_byte);
+
+        println!("Pushed 0x{:04X} from {:?} onto stack", value, register_pair);
+    }
+
+    fn call(&mut self, memory: &mut crate::gameboy::memory::Memory, condition: Conditions) {
+        if self.registers.check_condition(condition) {
+            // Fetch the target address
+            let target_address = self.fetch_two_bytes(memory);
+
+            // Push the current PC onto the stack
+            let pc_high = (self.pc >> 8) as u8;
+            let pc_low = (self.pc & 0x00FF) as u8;
+            self.sp = self.sp.wrapping_sub(1);
+            memory.write_byte(self.sp, pc_high);
+            self.sp = self.sp.wrapping_sub(1);
+            memory.write_byte(self.sp, pc_low);
+
+            // Jump to the target address
+            self.pc = target_address;
+
+            println!("Called address 0x{:04X} on condition {:?}", target_address, condition);
+        } else {
+            // If the condition is not met, just skip the two bytes
+            self.pc = self.pc.wrapping_add(2);
+            println!("Did not call on condition {:?}, PC remains at 0x{:04X}", condition, self.pc);
+        }
+    }
+
     fn ret(&mut self, memory: &crate::gameboy::memory::Memory, condition: Conditions) {
-        if self.flags.condition(condition) {
+        if self.registers.check_condition(condition) {
             self.return_from_interrupt(memory);
             println!("Returned to address 0x{:04X} on condition {:?}", self.pc, condition);
         } else {
