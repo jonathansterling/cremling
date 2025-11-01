@@ -1,3 +1,5 @@
+// TODO: Flag resolution and updating can be refactored to reduce code duplication
+
 use crate::gameboy::cpu::registers::{R8, R16, Registers, Conditions};
 
 #[derive(Debug)]
@@ -65,10 +67,10 @@ impl CPU {
             // ALU operations
             // 0x80..=0xBF => self.alu_r(opcode), // TODO: Decode the opcode to determine the operation and register
             0xA8..=0xAF => self.xor(memory),
-
+            0xB8..=0xBF => self.compare_r8(memory),
+            0xFE => self.compare_d8(memory),
             0x40..=0x7F if self.instruction != 0x76 => self.ld_r8_r8(memory),
             0x76 => self.halt(),
-
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C =>
                 self.inc_r8(memory),
             0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D =>
@@ -421,6 +423,33 @@ impl CPU {
         }
 
         println!("Incremented {:?}: 0x{:04X} -> 0x{:04X}", register_pair, old_value, new_value);
+    }
+
+    fn compare_d8(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        // TODO: compare methods can probably be refactored to reduce code duplication
+
+        // Compare the value in register A with an immediate 8-bit value
+        let value = self.fetch_instruction(memory);
+        let a_value = self.registers.a;
+        let result = a_value.wrapping_sub(value);
+        // Set flags: Z if result is zero, N=1, H if borrow from bit 4, C if borrow
+        let half_borrow = (a_value & 0x0F) < (value & 0x0F);
+        let carry = a_value < value;
+        self.registers.set_flags(result == 0, true, half_borrow, carry);
+        println!("Compared A (0x{:02X}) with immediate 0x{:02X}", a_value, value);
+    }
+
+    fn compare_r8(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        // Compare the value in register A with another register
+        let register = self.get_r8_from_opcode(self.instruction);
+        let value = self.registers.read_r8(register, memory);
+        let a_value = self.registers.a;
+        let result = a_value.wrapping_sub(value);
+        // Set flags: Z if result is zero, N=1, H if borrow from bit 4, C if borrow
+        let half_borrow = (a_value & 0x0F) < (value & 0x0F);
+        let carry = a_value < value;
+        self.registers.set_flags(result == 0, true, half_borrow, carry);
+        println!("Compared A (0x{:02X}) with {:?} (0x{:02X})", a_value, register, value);
     }
 
     fn dec_r16(&mut self, _memory: &mut crate::gameboy::memory::Memory) {
