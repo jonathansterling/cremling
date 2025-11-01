@@ -40,6 +40,9 @@ impl CPU {
             0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => 
                 self.ld_immediate(memory),
 
+            0x07 => self.rotate_left_circular_a(),
+            0x17 => self.rotate_left_a(),
+
             0x18 => self.conditional_jump_relative(memory, Conditions::NONE),
             0x20 => self.conditional_jump_relative(memory, Conditions::NZ),
             0x28 => self.conditional_jump_relative(memory, Conditions::Z),
@@ -126,10 +129,11 @@ impl CPU {
     }
 
     fn extended_instruction(&mut self, memory: &mut crate::gameboy::memory::Memory) {
-        let extended_opcode = self.fetch_instruction(memory);
-        match extended_opcode {
-            0x40..=0x7F => self.bit(extended_opcode, memory),
-            _ => panic!("Unknown extended opcode: 0x{:02X}", extended_opcode),
+        self.instruction = self.fetch_instruction(memory);
+        match self.instruction {
+            0x10..=0x17 => self.rotate_left(memory),
+            0x40..=0x7F => self.bit(memory),
+            _ => panic!("Unknown extended opcode: 0x{:02X}", self.instruction),
         }
     }
 
@@ -442,15 +446,32 @@ impl CPU {
 
     // --- Uncategorized ---
 
-    fn bit(&mut self, opcode: u8, memory: &crate::gameboy::memory::Memory) {
-        let bit_position = self.get_bit_from_opcode(opcode);
-        let value = self.get_alu_register(opcode, memory);
-        let bit_set = (value >> bit_position) & 0x01 != 0;
+    fn rotate_left_a(&mut self) {
+        // RLA: Rotate A left through carry
+        let old_value = self.registers.a;
+        let carry_in = if self.registers.get_carry_flag() { 1 } else { 0 };
+        let new_value = (old_value << 1) | carry_in;
+        self.registers.a = new_value;
 
-        // Set flags: Z = !(bit set), N = 0, H = 1
-        let carry = self.registers.get_carry_flag();
-        self.registers.set_flags(!bit_set, false, true, carry);
-        println!("Tested bit {} of value 0x{:02X}, bit set: {}", bit_position, value, bit_set);
+        // Set flags: Z=0, N=0, H=0, C=old bit 7
+        // Note: Z is always 0 for RLA (unlike extended rotate instructions)
+        let carry_out = (old_value & 0x80) != 0;
+        self.registers.set_flags(false, false, false, carry_out);
+        println!("Rotated left A: 0x{:02X} -> 0x{:02X}", old_value, new_value);
+    }
+
+    fn rotate_left_circular_a(&mut self) {
+        // RLCA: Rotate A left circular (bit 7 to carry and bit 0)
+        let old_value = self.registers.a;
+        let bit_7 = (old_value & 0x80) >> 7;
+        let new_value = (old_value << 1) | bit_7;
+        self.registers.a = new_value;
+
+        // Set flags: Z=0, N=0, H=0, C=old bit 7
+        // Note: Z is always 0 for RLCA (unlike extended rotate instructions)
+        let carry_out = (old_value & 0x80) != 0;
+        self.registers.set_flags(false, false, false, carry_out);
+        println!("Rotated left circular A: 0x{:02X} -> 0x{:02X}", old_value, new_value);
     }
 
     fn conditional_jump_relative(&mut self, memory: &crate::gameboy::memory::Memory, condition: Conditions) {
@@ -582,6 +603,32 @@ impl CPU {
         self.pc = interrupt_vector;
 
         println!("Serviced interrupt, jumped to vector 0x{:04X}", interrupt_vector);
+    }
+
+    // --- Extended ---
+
+    fn bit(&mut self, memory: &crate::gameboy::memory::Memory) {
+        let bit_position = self.get_bit_from_opcode(self.instruction);
+        let value = self.get_alu_register(self.instruction, memory);
+        let bit_set = (value >> bit_position) & 0x01 != 0;
+
+        // Set flags: Z = !(bit set), N = 0, H = 1
+        let carry = self.registers.get_carry_flag();
+        self.registers.set_flags(!bit_set, false, true, carry);
+        println!("Tested bit {} of value 0x{:02X}, bit set: {}", bit_position, value, bit_set);
+    }
+
+    fn rotate_left(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        let register = self.get_r8_from_opcode(self.instruction);
+        let old_value = self.registers.read_r8(register, memory);
+        let carry_in = if self.registers.get_carry_flag() { 1 } else { 0 };
+        let new_value = (old_value << 1) | carry_in;
+        self.registers.write_r8(register, new_value, memory);
+
+        // Set flags: Z if result is zero, N=0, H=0, C=old bit 7
+        let carry_out = (old_value & 0x80) != 0;
+        self.registers.set_flags(new_value == 0, false, false, carry_out);
+        println!("Rotated left {:?}: 0x{:02X} -> 0x{:02X}", register, old_value, new_value);
     }
 }
 
