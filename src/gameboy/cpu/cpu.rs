@@ -81,6 +81,7 @@ impl CPU {
                 self.dec_r16(memory),
 
             0xE2 => self.ld_c_indirect_a(memory),
+            0xF2 => self.ld_a_c_indirect(memory),
 
             // Calls
             0xC4 => self.call(memory, Conditions::NZ),
@@ -104,8 +105,8 @@ impl CPU {
             // LDH
             0xE0 => self.ldh_imm_a(memory),
             0xF0 => self.ldh_a_imm(memory),
-            0xE8 => self.ldh_c_a(memory),
-            0xF8 => self.ldh_a_c(memory),
+            0xEA => self.ld_imm_a16(memory),
+            0xFA => self.ld_a_imm_a16(memory),
 
             0xC1 | 0xD1 | 0xE1 | 0xF1 =>
                 self.pop(memory),
@@ -320,9 +321,18 @@ impl CPU {
         println!("Stored A (0x{:02X}) into address 0x{:04X}", self.registers.a, address);
     }
 
+    fn ld_a_c_indirect(&mut self, memory: &crate::gameboy::memory::Memory) {
+        let address = 0xFF00 | (self.registers.c as u16);
+        let value = memory.read_byte(address);
+        self.registers.a = value;
+        println!("Loaded 0x{:02X} from address 0x{:04X} into A", value, address);
+    }
+
     // --- High RAM / I/O Region Loads ---
 
     fn ldh_imm_a(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        // TODO: Consolidate with ld_imm_a16
+
         // Fetch the immediate 8-bit address offset
         let offset = self.fetch_instruction(memory);
         let address = 0xFF00 | (offset as u16);
@@ -339,6 +349,8 @@ impl CPU {
     }
 
     fn ldh_a_imm(&mut self, memory: &crate::gameboy::memory::Memory) {
+        // TODO: Consolidate with ld_a_imm_a16
+
         // Fetch the immediate 8-bit address offset
         let offset = self.fetch_instruction(memory);
         let address = 0xFF00 | (offset as u16);
@@ -350,16 +362,24 @@ impl CPU {
         println!("Loaded 0x{:02X} from address 0x{:04X} into A", value, address);
     }
 
-    fn ldh_c_a(&mut self, memory: &mut crate::gameboy::memory::Memory) {
-        let address = 0xFF00 | (self.registers.c as u16);
+    fn ld_imm_a16(&mut self, memory: &mut crate::gameboy::memory::Memory) {
+        // Fetch the immediate 16-bit address
+        let address = self.fetch_two_bytes(memory);
+
+        // Load the value of A into the specified address
         memory.write_byte(address, self.registers.a);
+
         println!("Stored A (0x{:02X}) into address 0x{:04X}", self.registers.a, address);
     }
 
-    fn ldh_a_c(&mut self, memory: &crate::gameboy::memory::Memory) {
-        let address = 0xFF00 | (self.registers.c as u16);
+    fn ld_a_imm_a16(&mut self, memory: &crate::gameboy::memory::Memory) {
+        // Fetch the immediate 16-bit address
+        let address = self.fetch_two_bytes(memory);
+
+        // Load the value from the specified address into A
         let value = memory.read_byte(address);
         self.registers.a = value;
+
         println!("Loaded 0x{:02X} from address 0x{:04X} into A", value, address);
     }
 
